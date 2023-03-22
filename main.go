@@ -98,6 +98,8 @@ func (sc *SystemController) AddNode(name string) error {
 		sc.NodeNumber++
 		if schedulable {
 			sc.NodesAssingment[node.Name] = 0
+		} else {
+			sc.MasterNodeBackGroundProcesesses()
 		}
 		return nil
 	}
@@ -147,6 +149,7 @@ func (sc *SystemController) SchedulePod(name, image string, ports []string) (boo
 		return res, err
 	}
 	pod.Address = podaddr
+
 	bestNodeCadidates := sc.bestNodeCadidate()
 	fmt.Printf("Best candidate for this schedule is %s \n", bestNodeCadidates)
 	for _, v := range sc.Nodes {
@@ -220,6 +223,8 @@ func newPod(name, image string, port []string) *Pod {
 		Name:        name,
 		Image:       image,
 		Ports:       port,
+		Status:      true,
+		Address:     "internal",
 		CreatedTime: time.Now(),
 		StartTime:   time.Now(),
 	}
@@ -243,6 +248,18 @@ func (sc *SystemController) CreatePodAddress() (string, error) {
 		return address2, nil
 	} else {
 		return fmt.Sprintf("127.0.2.%d", sc.PodNumber), nil
+	}
+}
+func (sc *SystemController) MasterNodeBackGroundProcesesses() {
+	kubeadmin := newPod("kubeadm", "kubeadm", []string{"7373"})
+	etcd := newPod("etcd", "etcd", []string{"4500"})
+	weaver := newPod("weaver", "weaver", []string{"5500"})
+	for _, v := range sc.Nodes {
+		if !isSchedulable(v.Name) {
+			v.Pods[kubeadmin.Name] = kubeadmin
+			v.Pods[etcd.Name] = etcd
+			v.Pods[weaver.Name] = weaver
+		}
 	}
 }
 func (sc *SystemController) ShowSystemControllerInfo() {
