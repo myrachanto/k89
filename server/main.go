@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -142,16 +143,11 @@ func (sc *SystemController) SchedulePod(name, image string, ports []string) (boo
 	var (
 		res bool = false
 	)
-	pod := newPod(name, image, ports)
+	pod := sc.newPod(name, image, ports)
 	pod.Status = true
-	podaddr, err := sc.CreatePodAddress()
-	if err != nil {
-		return res, err
-	}
-	pod.Address = podaddr
 
 	bestNodeCadidates := sc.bestNodeCadidate()
-	fmt.Printf("Best candidate for this schedule is %s \n", bestNodeCadidates)
+	log.Printf("Best candidate for this schedule is %s \n", bestNodeCadidates)
 	for _, v := range sc.Nodes {
 		if v.Namespace == defaultNameSpace && v.Schedulable && v.Name == bestNodeCadidates {
 			v.Pods[name] = pod
@@ -215,16 +211,21 @@ func (sc *SystemController) PodStatus(namespace, name string) {
 		}
 	}
 }
-func newPod(name, image string, port []string) *Pod {
+func (sc *SystemController) newPod(name, image string, port []string) *Pod {
 	if name == "" {
 		log.Panic("Please use a valid Name for a Node!")
 	}
+	podaddr, err := sc.CreatePodAddress()
+	if err != nil {
+		return nil
+	}
+	pordAddress := podaddr + ":" + port[0]
 	return &Pod{
 		Name:        name,
 		Image:       image,
 		Ports:       port,
 		Status:      true,
-		Address:     "internal",
+		Address:     pordAddress,
 		CreatedTime: time.Now(),
 		StartTime:   time.Now(),
 	}
@@ -251,9 +252,9 @@ func (sc *SystemController) CreatePodAddress() (string, error) {
 	}
 }
 func (sc *SystemController) MasterNodeBackGroundProcesesses() {
-	kubeadmin := newPod("kubeadm", "kubeadm", []string{"7373"})
-	etcd := newPod("etcd", "etcd", []string{"4500"})
-	weaver := newPod("weaver", "weaver", []string{"5500"})
+	kubeadmin := sc.newPod("kubeadm", "kubeadm", []string{"7373"})
+	etcd := sc.newPod("etcd", "etcd", []string{"4500"})
+	weaver := sc.newPod("weaver", "weaver", []string{"5500"})
 	for _, v := range sc.Nodes {
 		if !isSchedulable(v.Name) {
 			v.Pods[kubeadmin.Name] = kubeadmin
@@ -264,17 +265,17 @@ func (sc *SystemController) MasterNodeBackGroundProcesesses() {
 }
 func (sc *SystemController) ShowSystemControllerInfo() {
 	fmt.Println("")
-	color.Blue(" %s %s Cluster %s \n", strings.Repeat(" ", 40), sc.Name, strings.Repeat(" ", 40))
+	color.Green(" %s %s Cluster %s \n", strings.Repeat(" ", 40), sc.Name, strings.Repeat(" ", 40))
 	color.Red("%s \n", strings.Repeat("_", 100))
 	color.Green("%15.10s %30s %30s %20s  \n", "Name", "Address", "Namespace", "Start Time")
 	for k, v := range sc.Nodes {
-		fmt.Printf("%15.10s %30s %30s %20s \n", k, v.Address, v.Namespace, v.StartTime.Format("2006-01-02"))
+		color.Green("%15.10s %30s %30s %20s \n", k, v.Address, v.Namespace, v.StartTime.Format("2006-01-02"))
 		color.Blue("%s %s \n", strings.Repeat(" ", 20), strings.Repeat("#", 80))
 		color.Green("%s %s %s Node %s \n", strings.Repeat(" ", 20), strings.Repeat(" ", 30), v.Name, strings.Repeat(" ", 30))
 		color.Red("%s %s \n", strings.Repeat(" ", 20), strings.Repeat("_", 80))
-		fmt.Printf(" %s %15.10s %20s %10s %10s %20s \n", strings.Repeat(" ", 20), "Name", "Image", "Status", "Address", "Start Time")
+		fmt.Printf(" %s %15.10s %20s %10s %15s %20s \n", strings.Repeat(" ", 10), "Name", "Image", "Status", "Address", "Start Time")
 		for s, g := range v.Pods {
-			fmt.Printf("%s %15.10s  %20s %10v %10s %20s \n", strings.Repeat(" ", 20), s, g.Image, g.Status, g.Address, g.StartTime.Format("2006-01-02"))
+			color.Cyan("%s %15.10s|  %20s| %10v| %15s| %20s \n", strings.Repeat(" ", 10), s, g.Image, g.Status, g.Address, g.StartTime.Format("2006-01-02"))
 		}
 		fmt.Printf("%s \n", strings.Repeat("+", 100))
 	}
@@ -290,16 +291,21 @@ func isSchedulable(name string) bool {
 	return res
 }
 
+func (sc *SystemController) Run() {
+	log.Fatal(http.ListenAndServe("0.0.0.0:2300", nil))
+}
+
 func main() {
 	systemcontrol := New()
 	systemcontrol.AddNode("master_m11")
 	systemcontrol.AddNode("worker1")
 	systemcontrol.AddNode("worker2")
-	ports := []string{"4000"}
-	systemcontrol.SchedulePod("goapp", "myrachanto/goapp", ports)
-	ports1 := []string{"6379"}
-	systemcontrol.SchedulePod("redis", "redis", ports1)
+	systemcontrol.SchedulePod("goapp", "myrachanto/goapp", []string{"4000"})
+	systemcontrol.SchedulePod("webapp1", "myrachanto/webapp1", []string{"4001"})
+	systemcontrol.SchedulePod("mobile1", "myrachanto/mobile1", []string{"4002"})
+	systemcontrol.SchedulePod("redis", "redis", []string{"6379"})
 
 	systemcontrol.ShowSystemControllerInfo()
 
+	systemcontrol.Run()
 }
