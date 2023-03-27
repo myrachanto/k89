@@ -139,6 +139,7 @@ func (sc *SystemController) DeleteNode(name string) {
 		return
 	}
 	delete(sc.Nodes, name)
+	sc.NodeNumber--
 }
 func (sc *SystemController) AddPod(item Pod, reply *Pod) error {
 	pod, err := sc.SchedulePod(item.Name, item.Image, item.Ports)
@@ -147,6 +148,7 @@ func (sc *SystemController) AddPod(item Pod, reply *Pod) error {
 }
 func (sc *SystemController) SchedulePod(name, image string, ports []string) (*Pod, error) {
 	res := &Pod{}
+	var err error
 	pod := sc.newPod(name, image, ports)
 	pod.Status = true
 
@@ -159,11 +161,13 @@ func (sc *SystemController) SchedulePod(name, image string, ports []string) (*Po
 			sc.PodNumber++
 			if isSchedulable(v.Name) {
 				sc.NodesAssingment[v.Name]++
+			} else {
+				err = fmt.Errorf("could not schedule the pod")
 			}
 			break
 		}
 	}
-	return res, fmt.Errorf("could not schedule the pod")
+	return res, err
 }
 func (sc *SystemController) bestNodeCadidate() string {
 	// color.Red("The list of acceptable schedulables", sc.NodesAssingment)
@@ -198,12 +202,14 @@ func (sc *SystemController) DeletePod(namespace, name string) error {
 			_, ok := v.Pods[name]
 			if ok {
 				delete(v.Pods, name)
+				sc.PodNumber--
 				break
 			}
 		} else {
 			_, ok := v.Pods[name]
 			if ok {
 				delete(v.Pods, name)
+				sc.PodNumber--
 				break
 			}
 		}
@@ -267,6 +273,7 @@ func (sc *SystemController) MasterNodeBackGroundProcesesses() {
 	weaver := sc.newPod("weaver", "weaver", []string{"5500"})
 	for _, v := range sc.Nodes {
 		if !isSchedulable(v.Name) {
+			sc.PodNumber = 3
 			v.Pods[kubeadmin.Name] = kubeadmin
 			v.Pods[etcd.Name] = etcd
 			v.Pods[weaver.Name] = weaver
