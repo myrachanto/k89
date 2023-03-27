@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/rpc"
 	"strings"
 	"time"
-
-	"github.com/fatih/color"
 )
 
 const (
@@ -87,7 +87,7 @@ func (sc *SystemController) SystemStatus() {
 		log.Println("has being Stoped!")
 	}
 }
-func (sc *SystemController) AddNode(name string) error {
+func (sc *SystemController) AddNode(name string, reply *Node) error {
 	schedulable := isSchedulable(name)
 	node := sc.newNode(name, schedulable)
 	node.Status = true
@@ -102,6 +102,7 @@ func (sc *SystemController) AddNode(name string) error {
 		} else {
 			sc.MasterNodeBackGroundProcesesses()
 		}
+		*reply = *node
 		return nil
 	}
 }
@@ -139,10 +140,13 @@ func (sc *SystemController) DeleteNode(name string) {
 	}
 	delete(sc.Nodes, name)
 }
-func (sc *SystemController) SchedulePod(name, image string, ports []string) (bool, error) {
-	var (
-		res bool = false
-	)
+func (sc *SystemController) AddPod(item Pod, reply *Pod) error {
+	pod, err := sc.SchedulePod(item.Name, item.Image, item.Ports)
+	*reply = *pod
+	return err
+}
+func (sc *SystemController) SchedulePod(name, image string, ports []string) (*Pod, error) {
+	res := &Pod{}
 	pod := sc.newPod(name, image, ports)
 	pod.Status = true
 
@@ -151,7 +155,7 @@ func (sc *SystemController) SchedulePod(name, image string, ports []string) (boo
 	for _, v := range sc.Nodes {
 		if v.Namespace == defaultNameSpace && v.Schedulable && v.Name == bestNodeCadidates {
 			v.Pods[name] = pod
-			res = true
+			res = pod
 			sc.PodNumber++
 			if isSchedulable(v.Name) {
 				sc.NodesAssingment[v.Name]++
@@ -196,6 +200,12 @@ func (sc *SystemController) DeletePod(namespace, name string) error {
 				delete(v.Pods, name)
 				break
 			}
+		} else {
+			_, ok := v.Pods[name]
+			if ok {
+				delete(v.Pods, name)
+				break
+			}
 		}
 	}
 	return fmt.Errorf("could not find the pod")
@@ -213,7 +223,7 @@ func (sc *SystemController) PodStatus(namespace, name string) {
 }
 func (sc *SystemController) newPod(name, image string, port []string) *Pod {
 	if name == "" {
-		log.Panic("Please use a valid Name for a Node!")
+		log.Panic("Please use a valid Name for a Pod!")
 	}
 	podaddr, err := sc.CreatePodAddress()
 	if err != nil {
@@ -263,22 +273,25 @@ func (sc *SystemController) MasterNodeBackGroundProcesesses() {
 		}
 	}
 }
-func (sc *SystemController) ShowSystemControllerInfo() {
-	fmt.Println("")
-	color.Green(" %s %s Cluster %s \n", strings.Repeat(" ", 40), sc.Name, strings.Repeat(" ", 40))
-	color.Red("%s \n", strings.Repeat("_", 100))
-	color.Green("%15.10s %30s %30s %20s  \n", "Name", "Address", "Namespace", "Start Time")
-	for k, v := range sc.Nodes {
-		color.Green("%15.10s %30s %30s %20s \n", k, v.Address, v.Namespace, v.StartTime.Format("2006-01-02"))
-		color.Blue("%s %s \n", strings.Repeat(" ", 20), strings.Repeat("#", 80))
-		color.Green("%s %s %s Node %s \n", strings.Repeat(" ", 20), strings.Repeat(" ", 30), v.Name, strings.Repeat(" ", 30))
-		color.Red("%s %s \n", strings.Repeat(" ", 20), strings.Repeat("_", 80))
-		fmt.Printf(" %s %15.10s %20s %10s %15s %20s \n", strings.Repeat(" ", 10), "Name", "Image", "Status", "Address", "Start Time")
-		for s, g := range v.Pods {
-			color.Cyan("%s %15.10s|  %20s| %10v| %15s| %20s \n", strings.Repeat(" ", 10), s, g.Image, g.Status, g.Address, g.StartTime.Format("2006-01-02"))
-		}
-		fmt.Printf("%s \n", strings.Repeat("+", 100))
-	}
+func (sc *SystemController) ShowSystemControllerInfo(name string, reply *SystemController) error {
+	// fmt.Println("")
+	// color.Green(" %s %s Cluster %s \n", strings.Repeat(" ", 40), sc.Name, strings.Repeat(" ", 40))
+	// color.Red("%s \n", strings.Repeat("_", 100))
+	// color.Green("%15.10s %30s %30s %20s  \n", "Name", "Address", "Namespace", "Start Time")
+	// for k, v := range sc.Nodes {
+	// 	color.Green("%15.10s %30s %30s %20s \n", k, v.Address, v.Namespace, v.StartTime.Format("2006-01-02"))
+	// 	color.Blue("%s %s \n", strings.Repeat(" ", 20), strings.Repeat("#", 80))
+	// 	color.Green("%s %s %s Node %s \n", strings.Repeat(" ", 20), strings.Repeat(" ", 30), v.Name, strings.Repeat(" ", 30))
+	// 	color.Red("%s %s \n", strings.Repeat(" ", 20), strings.Repeat("_", 80))
+	// 	fmt.Printf(" %s %15.10s %20s %10s %15s %20s \n", strings.Repeat(" ", 10), "Name", "Image", "Status", "Address", "Start Time")
+	// 	for s, g := range v.Pods {
+	// 		color.Cyan("%s %15.10s|  %20s| %10v| %15s| %20s \n", strings.Repeat(" ", 10), s, g.Image, g.Status, g.Address, g.StartTime.Format("2006-01-02"))
+	// 	}
+	// 	fmt.Printf("%s \n", strings.Repeat("+", 100))
+	// }
+	fmt.Println("debuging cluster step 3 server")
+	*reply = *sc
+	return nil
 }
 func isSchedulable(name string) bool {
 	res := true
@@ -292,20 +305,35 @@ func isSchedulable(name string) bool {
 }
 
 func (sc *SystemController) Run() {
-	log.Fatal(http.ListenAndServe("0.0.0.0:2300", nil))
+	// log.Fatal(http.ListenAndServe("0.0.0.0:2300", nil))
 }
 
 func main() {
 	systemcontrol := New()
-	systemcontrol.AddNode("master_m11")
-	systemcontrol.AddNode("worker1")
-	systemcontrol.AddNode("worker2")
+	var node Node
+	systemcontrol.AddNode("master_m11", &node)
+	systemcontrol.AddNode("worker1", &node)
+	systemcontrol.AddNode("worker2", &node)
 	systemcontrol.SchedulePod("goapp", "myrachanto/goapp", []string{"4000"})
 	systemcontrol.SchedulePod("webapp1", "myrachanto/webapp1", []string{"4001"})
 	systemcontrol.SchedulePod("mobile1", "myrachanto/mobile1", []string{"4002"})
 	systemcontrol.SchedulePod("redis", "redis", []string{"6379"})
+	systemcontrol.ShowSystemControllerInfo("", systemcontrol)
 
-	systemcontrol.ShowSystemControllerInfo()
-
-	systemcontrol.Run()
+	// systemcontrol.Run()
+	err := rpc.Register(systemcontrol)
+	if err != nil {
+		log.Fatal("something went wrong with Registering RPC: ", err)
+	}
+	rpc.HandleHTTP()
+	port := ":2300"
+	log.Println("Serving our cluster on port", port)
+	listener, err := net.Listen("tcp", port)
+	if err != nil {
+		log.Fatal("something went wrong with Listener: ", err)
+	}
+	err = http.Serve(listener, nil)
+	if err != nil {
+		log.Fatal("something went wrong with Serving: ", err)
+	}
 }
