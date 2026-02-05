@@ -2,7 +2,7 @@
 
 > **Warning**: This is a *dummy* Kubernetes implementation created just for fun! 🎉 Not for production use (obviously).
 
-<img src="image2.png" width="400"/>
+<img src="image2.png" width="100%"/>
 
 ## 📖 Overview
 
